@@ -1,0 +1,1391 @@
+
+---
+title: "Example of RNA-seq counts table preprocessing"  
+date: "`r substr(Sys.time(), 1, 10)`"
+output: 
+  html_document:
+    toc: true
+    number_sections: true
+    theme: cerulean
+    code_folding: show
+    cache: true
+    toc_float:
+      collapsed: true
+      smooth_scroll: false 
+
+---
+
+# Program description  
+
+
+Main informations     |   
+--------------------- | ----------------------------------------------------------------------------------------   
+Program name          | Example of RNA-seq counts table preprocessing
+Description           | Example of RNA-seq counts table preprocessing
+Original programmer   | Aurore Llinares (I0354202) 
+Current programmer    | Aurore Llinares (I0354202)
+Compound number       |   
+Study code            |   
+Analysis code         |   
+Date completed        | "`r substr(Sys.time(), 1, 10)`"
+Modified by           |   
+Input files           | 
+Input programs        |   
+Packages needed       | 
+Outputs created       |  
+
+
+
+# Dataset Description
+
+The sequencing data (FastQ) come from the publication of Haglund et al.
+
+Data is available in the airway bioconductor package.
+
+The data summarizes an RNA-seq experiment wherein airway smooth muscle cells were treated with dexamethasone, a synthetic glucocorticoid steroid with anti-inflammatory effects (Himes et al. 2014). Glucocorticoids are used, for example, by people with asthma to reduce inflammation of the airways. 
+
+In the experiment, four primary human airway smooth muscle cell lines were treated with 1 micromolar dexamethasone for 18 hours. 
+For each of the four cell lines, we have a treated and an untreated sample. 
+
+For more description of the experiment see the PubMed entry 24926665 and for raw data see the GEO entry GSE52778.
+
+Many packages storing experimental data are available on the [bioconductor website](https://www.bioconductor.org/packages/release/data/experiment/)
+
+
+Our aim is to detect differentially expressed genes between experimental conditions.
+
+
+# Environment 
+
+## Options for report output
+
+```{r setup, echo=FALSE, message=FALSE}
+
+library(knitr)
+
+opts_chunk$set(fig.align = "center",
+               fig.retina = 2,
+               fig.width = 10,
+               cache = TRUE,
+               cache.lazy = FALSE)
+
+```
+
+
+## System Information
+
+```{r, echo=FALSE}
+
+
+rm(list = ls())
+
+gc()
+
+version
+
+mem=memory.limit(size=memory.size(max = NA))
+message=paste("Memory set to ", mem," Mb.","\n\n")
+cat(message)
+
+
+```
+
+
+## Libraries Intallation & Loading
+
+
+```{r, message = FALSE}
+
+# source("https://bioconductor.org/biocLite.R")
+
+if (!require("airway")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("airway", dependencies = TRUE)
+ library("airway")
+}
+
+if (!require("DESeq2")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("DESeq2", dependencies = TRUE)
+ library("DESeq2")
+}
+
+if (!require("Glimma")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("Glimma", dependencies = TRUE)
+ library("Glimma")
+}
+
+if (!require("edgeR")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("edgeR", dependencies = TRUE)
+ library("edgeR")
+}
+
+if (!require("DESeq2")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("DESeq2", dependencies = TRUE)
+ library("DESeq2")
+}
+
+
+if (!require("vsn")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("vsn", dependencies = TRUE)
+ library("vsn")
+}
+
+
+if (!require("Homo.sapiens")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("Homo.sapiens", dependencies = TRUE)
+ library("Homo.sapiens")
+}
+
+if (!require("geneplotter")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("geneplotter", dependencies = TRUE)
+ library("geneplotter")
+}
+
+if (!require("genefilter")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("genefilter", dependencies = TRUE)
+ library("genefilter")
+}
+
+
+if (!require("Glimma")) {
+ source("https://bioconductor.org/biocLite.R")
+ biocLite("Glimma", dependencies = TRUE)
+ library("Glimma")
+}
+
+
+if (!require("dendextend")) {
+ install.packages("dendextend", dependencies = TRUE)
+ library("dendextend")
+}
+
+
+if (!require("ggplot2")) {
+ install.packages("ggplot2", dependencies = TRUE)
+ library(ggplot2)
+}
+
+if (!require("RColorBrewer")) {
+ install.packages("RColorBrewer", dependencies = TRUE)
+ library(RColorBrewer)
+}
+
+if (!require("mixOmics")) {
+ install.packages("mixOmics", dependencies = TRUE)
+ library(mixOmics)
+}
+
+if (!require("Rtsne")) {
+ install.packages("Rtsne", dependencies = TRUE)
+ library(Rtsne)
+}
+
+if (!require("gplots")) {
+ install.packages("gplots", dependencies = TRUE)
+ library(gplots)
+}
+
+if (!require("pheatmap")) {
+ install.packages("pheatmap", dependencies = TRUE)
+ library(pheatmap)
+}
+
+if (!require("mixOmics")) {
+ install.packages("mixOmics", dependencies = TRUE)
+ library(mixOmics)
+}
+
+
+```
+
+
+## Record package and version info with sessionInfo()
+
+The session information describes the versions of R and of the packages that were used in the analysis. This is useful for record-keeping purposes, and ensures that an analysis can be reproduced even when the software is updated over time.
+
+```{r}
+
+sessionInfo() 
+
+```
+
+
+# Data loading  
+
+The input data is incuded int he Bioconductor package airway.
+Counts and design data are included in a [RangedSummarizedExperimen object](https://bioconductor.org/packages/devel/bioc/vignettes/SummarizedExperiment/inst/doc/SummarizedExperiment.html).
+
+However,when one produced its own counts table at the gene level (processing its fastq files (alignment+quantification). The object is a matrix : 
+
+
+Rna-seq counts are represented as tables which estimate gene expression with the number of reads mapped on each gene for different conditions with j samples and g gene .
+
+
+| | Sample J1 | Sample J2 | Sample J3 | Sample J4 |
+|-------|-------|--------|------|
+| gene 1 | 8 |  10 | 100 | 200 |
+| gene 2 | 14 | 15 | 15 | 40 |
+| gene 3 | 33 | 40| 35 | 70 |
+| ... | ... | ... | ... |
+| gene N | 100| 120| 105 | 220 |
+
+We extract the counts table (as assays(SE)) from the parathyroidGenesSE object.
+
+```{r}
+
+data("airway")
+SE = airway
+
+assay=assays(SE)
+
+raw_counts=assay$counts
+
+colnames(raw_counts)=SE$Run
+
+head(raw_counts)
+
+dim(raw_counts)
+
+```
+
+There is 8 samples and 64102 genes in the counts table.
+
+# Samples Information
+
+```{r}
+
+design=as.data.frame(colData(SE))
+rownames(design)=design$Run
+design=design[,design$Run]
+
+head(design)
+
+```
+
+# Data Exploration
+
+## Examples of counts distribution for expressed genes
+
+```{r}
+
+df_raw_counts=as.data.frame(t(raw_counts))
+
+# example with ENSG00000002549
+
+ggplot(df_raw_counts, aes(x = `ENSG00000002549`)) + geom_histogram(aes(y=..density..),fill = "skyblue",bins=15)+ geom_density(alpha=.2, fill="#FF6666")
+
+#+coord_cartesian(xlim = c(0, 1000))
+
+# example with ENSG00000255103
+
+ggplot(df_raw_counts, aes(x = `ENSG00000255103`)) + geom_histogram(aes(y=..density..),fill = "skyblue",bins=15)+ geom_density(alpha=.2, fill="#FF6666") 
+
+
+```
+
+
+we only have 8 different samples so it is not easy to see the distribution.
+However, rna-seq counts distribution is considered as following a **Poisson distribution** or a **negative binomial distribution**.
+
+## Raw counts distribution
+
+As there is an important proportion of 0 in the count tables (43.9 % of genes with all value set to 0), this distribution is highly skewed :
+
+```{r}
+
+table(rowSums(raw_counts==0)==ncol(raw_counts))
+
+```
+
+This number is important to check, if it is really high it suggests an experimental problem e.g the sample preparation was not done properly, or there was some problem with the sequencing.
+NB: 44% starts to be a high proportion, one has to consider that this dataset is 7 years old and experimentation + bioinformatics algorithms has been improved since. In more recent dataset, we usually have between 20 and 30 % of zero counts genes proportion.
+
+```{r}
+
+
+
+# For one sample
+ggplot(as.data.frame(raw_counts), aes(x = `SRR1039508`)) + geom_histogram(fill = "skyblue",bins=350)
+
+# For all samples
+
+col = rainbow( ncol(raw_counts), s = 0.7)
+
+plot(density(raw_counts[,1]), 
+     col=col[1], 
+     lwd=2, 
+     ylim=c(0,1), 
+     las=2, 
+     main="A. Raw data", 
+     xlab="Log-cpm")
+
+abline(v=0, lty=3)
+
+for (i in 2:ncol(raw_counts)){
+  den = density(raw_counts[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+
+
+```
+
+# Evidence of mean-variance relationship of genes counts
+
+Rna-seq data are biological date sot ehy have a great dispersion.
+Data for a gene is overdispersed : the variance of the counts for a particular gene over different biological samples within a giver condition is larger than the average counts for the same gene.
+
+```{r}
+
+# example with ENSG00000002549
+mean_ENSG00000002549 = mean(as.numeric(raw_counts["ENSG00000002549",design$dex=="untrt"]))
+
+var_ENSG00000002549 = var(as.numeric(raw_counts["ENSG00000002549",design$dex=="untrt"]))
+
+
+print(paste("mean_ENSG00000002549 : ",mean_ENSG00000002549," var_ENSG00000002549: ",var_ENSG00000002549))
+
+# example with ENSG00000255103
+mean_ENSG00000255103 = mean(as.numeric(raw_counts["ENSG00000255103",design$dex=="untrt"]))
+
+var_ENSG00000255103 = var(as.numeric(raw_counts["ENSG00000255103",design$dex=="untrt"]))
+
+
+print(paste("mean_ENSG00000255103: ",mean_ENSG00000255103," var_ENSG00000255103 : ",var_ENSG00000255103))
+
+# all genes
+
+mv= data.frame(mean = apply(raw_counts[ ,design$dex == "untrt"], 1, mean),
+               var  = apply(raw_counts[ ,design$dex == "untrt"], 1, var))
+
+p = ggplot(data=mv, aes(x = mean, y = var))+
+  geom_point(colour = "turquoise")+
+  geom_abline(aes(intercept=0, slope=1))+
+  ggtitle("Gene Variance versus Gene mean for the condition : Control") +
+  ylab("variance")+
+  xlim(0,10000)+
+  ylim(0,10000)+
+  theme(plot.title = element_text(hjust = 0.5))
+
+
+print(p)
+
+# Mean vs standard deviation
+
+meanSdPlot(raw_counts, ranks = FALSE)
+
+```
+
+## Raw data transformation
+
+As tha data is higly skewed, one can not work directly on them. Transformation is needed to explore data.
+Many transformations methods have been developped for this purpose :
+
+*  **Pseudo-counts**
+
+This is a log2 transformation : y = log2(A+1) A is a count value.
+As there is a lot of 0 in the matrix an coefficient is added for the log2 transformation.
+Tha log2 transformation is easy to understand as a difference of 1 in the log-transformed data corresponds to a fold change of 2.
+
+*  **R-log transformation**
+
+The aim of the regularized log-transform is to stabilize the variance of the data and to make its distribution roughly symmetric since many common statistical methods for exploratory analysis of multidimensional data, especially methods for clustering and ordination (e.g., principal-component analysis and the like), work best for (at least approximately) homoskedastic data; this means that the variance of an observable quantity (i.e., here, the expression strength of a gene) does not depend on the mean.
+
+In RNA-Seq data, however, variance grows with the mean. 
+
+
+DESeq2 offers the regularized-logarithm transformation.For genes with high counts, the rlog transformation differs not much from an ordinary log2 transformation.For genes with lower counts, however, the values are shrunken towards the genes'averages across all samples. Using an empirical Bayesian prior in the form of a ridge penalty, this is done such that the rlog-transformed data are approximately homoskedastic. 
+
+NB :
+The rlogTransformation function is a little bit long to run (several minutes).
+Note that the rlog transformation is provided for applications other than differential testing. 
+
+*  **Variance stabilizing transformation**
+
+In applied statistics, a [variance-stabilizing transformation] (https://en.wikipedia.org/wiki/Variance-stabilizing_transformation) is a data transformation that is specifically chosen either to simplify considerations in graphical exploratory data analysis or to allow the application of simple regression-based or analysis of variance techniques 
+
+*  **Reads Per Kilobase Per Million (RPKM, for single end data) / Fragments Per Kilobase Per Million (FPKM, for paired end data)**
+
+Count up the total reads in a sample and divide that number by 1,000,000 - this is our "per million" scaling factor. Divide the read counts by the "per million" scaling factor. This normalizes for sequencing depth, giving reads per million (RPM).Divide the RPM values by the length of the gene, in kilobases. This gives FPKM.
+
+
+*  **Counts per millions** 
+
+Counts per million  are counts scaled by the number of sequenced fragments times one million.
+The log 2 transformation can be performed according to a chosen prior value.
+This transformation is really close to pseudo-counts. The only difference is the scaling according to library size it is nice to compare samples distributions without the effect of depths differences between samples.
+
+NB : Log Cpm is also known as total count normalization
+
+In this study, we will work using counts per millions data :
+
+```{r}
+
+raw_cpm = cpm(raw_counts) 
+
+raw_lcpm = cpm(raw_counts, log=TRUE,prior.count = 0.5) # to avoid taking the log of 0, 0 are turned in 0.5 (prior.count = 0.5)
+
+# For one sample
+
+ggplot(as.data.frame(raw_lcpm), aes(x = `SRR1039508`))+geom_histogram(aes(y=..density..),colour = "white", fill = "skyblue", binwidth = 0.6)+ geom_density(alpha=.2, fill="#FF6666") 
+
+# For all samples
+
+col = rainbow( ncol(raw_counts), s = 0.7)
+
+plot(density(raw_lcpm[,1]), 
+     col=col[1], 
+     lwd=2, 
+     ylim=c(0,0.9), 
+     las=2, 
+     main="A. Log-cpm Raw data", 
+     xlab="Log-cpm")
+
+abline(v=0, lty=3)
+
+for (i in 2:ncol(raw_lcpm)){
+  den = density(raw_lcpm[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+
+
+```
+
+Data transformation improved the distribution but it is still skewed.
+Before starting a statistical analysis, genes that have very low counts across all the libraries should be removed prior to statistical analysis.
+
+
+# Filtering Step
+
+From biological point of view, a gene must be expressed at some minimal level before it is likely to be translated into a protein or to be considered biologically important.
+
+From a statistical point of view, genes with consistently low counts are very unlikely be assessed as significantly DE because low counts do not provide enough statistical evidence for a reliable judgement to be made. Such genes can therefore be removed from the analysis without any loss of information.
+Furthermore and most importantly,filtering improves dispersion estimation (because one doesn't try to estimate dispersions for genes with no information). It also improves statistical power (because it reduces the amount of testing) and decreases computation time. 
+
+The distribution is bimodal, statiscal model used later are designed to fit the second peak (whcich coresponds to expressed gens). So, Filtering allows good empirical Bayes estimation across genes because it makes the remaining genes more homogeneous.
+
+Different filtering methods exists :
+
+Some people only filter genes with zero counts in all conditions. Another way is to filter genes with a total read count smaller than a given threshold (Sultan et al. 2008) and filter genes with at least one zero count in each experimental condition (Bottomly et al. 2011); however, selecting an arbitrary threshold value to filter genes in this way does not account for the overall sequencing depth.
+
+To account differences in library size, filter has also been proposed based on counts per million (CPM) (Robinson,
+McCarthy, and Smyth 2010), calculated as the raw counts divided by the library sizes and multiplied by one million.
+Genes with a CPM value less than a given cutoff (e.g. 1 or 100) in more samples (ignoring condition labels) than
+the size of the smallest group are subsequently filtered from the analysis. 
+
+Deseq2 performs by default [independant filtering] (https://www.ncbi.nlm.nih.gov/pmc/articles/PMC2906865/) (included in the wrapper function Deseq)
+
+In this example script, we will use later the deseq2 function so indeendant filtering will be performed.
+
+We filter anyway because we want to compare De results with other packages so we want to start tha statistical analysis for the exact same counts table.
+
+We are using the methods using a cpm threshold for filtering.
+
+## Cpm filtering can be performed manually :
+
+### Considering counts in all samples at once
+
+We set the rule to only keep genes with at least 1 cpm in at least hal of the samples of the largest group (4/2 = 2)
+
+```{r}
+
+table(SE$treatment)
+
+
+keep.exprs = rowSums(raw_cpm>1)>=2
+keep.exprs.names=names(keep.exprs[keep.exprs==T])
+
+
+#x = x0[keep.exprs,, keep.lib.sizes=FALSE]
+
+cpm_filtered_counts=subset(raw_counts, keep.exprs) # count matrix depleted of lowly expressed genes
+
+dim(cpm_filtered_counts)
+
+col = rainbow( ncol(raw_counts), s = 0.7)
+
+lcpm_filtered_counts = cpm(cpm_filtered_counts, log=TRUE,prior.count = 0.5)  
+
+plot(density(lcpm_filtered_counts[,1]), 
+     col=col[1], 
+     lwd=2, 
+     ylim=c(0,0.9), 
+     las=2, 
+     main="A. Log-cpm filtered data (cpm>1 for at least 5 samples)", 
+     xlab="Log-cpm")
+
+abline(v=0, lty=3)
+
+for (i in 2:ncol(lcpm_filtered_counts)){
+  den = density(lcpm_filtered_counts[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+
+
+```
+
+One can notice the removal of the bimodal distribution, distribution is not skewed anymore. A very small peak remains in the nagtive values
+
+### Considering counts for each group
+
+```{r}
+
+keep.exprs.group.trt=rowSums((raw_counts[,rownames(design[design$dex %in% "trt",])])>1)>=2
+keep.exprs.group.untrt=rowSums((raw_counts[,rownames(design[design$dex %in% "untrt",])])>1)>=2
+
+
+keep_gp=Reduce(`|`, list(keep.exprs.group.trt, keep.exprs.group.untrt))
+
+gp_filtered_counts=subset(raw_counts,keep_gp)
+
+dim(gp_filtered_counts)
+
+gp_filtered_counts = cpm(gp_filtered_counts, log=TRUE,prior.count = 0.5)  
+
+plot(density(gp_filtered_counts[,1]), 
+     col=col[1], 
+     lwd=2, 
+     ylim=c(0,0.9), 
+     las=2, 
+     main="A. Log-cpm filtered data (cpm>1 for at least half of samples for every treatment )", 
+     xlab="Log-cpm")
+
+abline(v=0, lty=3)
+
+for (i in 2:ncol(gp_filtered_counts)){
+  den = density(gp_filtered_counts[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+
+```
+
+This filtering method is less restrictive but one can notice a remaining peak in the negative values.
+
+### Or directly in the edgeR function : filterByExpr 
+
+This function  needs an implemented dge list object.
+
+**DGE-list structure:**
+
+The main components of an DGEList object are :
+
+  - a matrix counts containing the integer counts
+  
+  - a data.frame samples containing information about the samples or libraries. The data.frame samples contains a column lib.size for the library size or sequencing depth for each sample. If not  specified by the user, the library sizes will be computed from the column sums of the counts.  
+**NOTE** If the user adds or deletes counts information, he has to pay attention to recompute the library sizes in the DGE list object !  
+For classic edgeR the data.frame samples must also contain a column group, identifying the group membership of each sample.
+    
+  - a optional data.frame genes containing annotation for the genes or genomic features.
+  
+```{r}
+
+# dge list object creation
+
+dge=DGEList(raw_counts)
+dim(dge$counts)
+
+dge$samples$SampleName=design$SampleName
+dge$samples$cell=design$cell
+dge$samples$dex=design$dex
+dge$samples$albut=design$albut
+dge$samples$Run=design$Run
+dge$samples$avgLength=design$avgLength
+dge$samples$Sample=design$Sample
+dge$samples$Experiment=design$Experiment
+
+dge$samples
+
+# adding gene information
+
+# gene identification
+geneid = rownames(raw_counts) 
+genes = biomaRt::select(Homo.sapiens, keys=geneid, columns=c("SYMBOL", "TXCHROM","DEFINITION"),keytype="ENSEMBL")
+
+dim(genes)
+
+
+genes = genes[!duplicated(genes$ENSEMBL),] # some genes do not map one to one to chromosome, we only keep the first occurence
+
+# checking the order
+dim(genes)
+genes$ENSEMBL[1:10]
+dim(raw_counts)
+rownames(raw_counts)[1:10]
+
+dge$genes = genes # we add the gene information we have selected in the DGElist object x
+
+```
+
+
+An option to give experimental group is provided (arg group) , on can also provide the complet design matrix (arg design)
+
+
+This function implements the filtering strategy that was intuitively described by Chen & Smyth (2016). Roughly speaking, the strategy keeps genes that have at least min.count reads in a worthwhile number samples. More precisely, the filtering keeps genes that have count-per-million (CPM) above k in n samples, where k is determined by min.count and by the sample library sizes and n is determined by the design matrix.
+
+n is essentially the smallest group sample size or, more precisely, the minimum inverse leverage for any fitted value. If all the group sizes are large, then this is relaxed slightly, but with n always greater than 70% of the smallest group size.
+
+In addition, each kept gene is required to have at least min.total.count reads across all the samples.
+
+```{r}
+
+
+keep = filterByExpr(dge, group=design$dex ,min.total.count=1)
+dge_filtered= dge[keep,,keep.lib.size=FALSE]
+
+dim(dge_filtered$counts)
+
+dge_filtered_counts = cpm(dge_filtered, log=TRUE,prior.count = 0.5)  
+
+plot(density(dge_filtered_counts[,1]), 
+     col=col[1], 
+     lwd=2, 
+     ylim=c(0,0.9), 
+     las=2, 
+     main="A. Log-cpm filtered data (filterbyedger)", 
+     xlab="Log-cpm")
+
+abline(v=0, lty=3)
+
+for (i in 2:ncol(dge_filtered_counts)){
+  den = density(dge_filtered_counts[,i])
+  lines(den$x, den$y, col=col[i], lwd=2)
+}
+
+
+# Boxplot
+
+boxplot(dge_filtered_counts, las=2, col=col, main="")
+title(main="A. Unnormalised filterbyedger filtrated data",ylab="Log-cpm")
+
+```
+
+The distribution is homogeneous, no peak remaining.
+
+For further invetigation, we  keep data filtered using filterbyedger as it gives the most homogeneous distribution :
+
+```{r}
+
+dge=dge_filtered
+
+```
+
+# Data Exploration after Filtering
+
+## Number of null counts remaining per sample
+
+```{r}
+
+apply(dge$counts, 2, FUN = function(x) sum(x ==0))
+
+apply(dge$counts, 2, FUN = function(x) sum(x ==0))/nrow(dge$counts)
+
+```
+
+## Sequencing Depths per sample
+
+```{r}
+
+colSums(dge$counts)
+
+df=data.frame(librairy_size=dge$samples$lib.size,
+              Individu=colnames(dge$counts),
+              prof=colSums(dge$counts))
+
+ggplot( df,
+        aes(x=factor(Individu), y=prof, fill =librairy_size))+
+        geom_bar(stat ="identity") +
+        xlab("Echantillon") +
+        ylab("Profondeur")+
+        theme(axis.text.x = element_text(angle = 45))
+
+
+```
+
+# Gene Expression Normalisation
+
+There are differences in counts between genes and between samples.
+But theses differences are not the exact reflection of expression levels.
+
+Normalization is a process designed to identify and remove systematic technical differences between samples that occur in the data to ensure that technical bias has minimal impact on the results.
+
+One can differ **within-sample differences** and **between-samples differences**.
+
+Genes lengths (At same expression level, a long transcript will have more reads than
+a shorter transcript (Oshlack and Wakeffeld 2009; Bullard et al. 2010).), GC percent can affect within-sample differences.
+
+We are working on differential expression between conditions so we do not consider within sample normalisation (it is needed for isoforms differential expression mainly).
+
+The main reason of between samples differences is the **difference of sequencing depth** between samples.
+
+The most common symptom of the need for normalization is differences in the total number of aligned reads.
+
+The overall strategy with normalization is to choose an appropriate baseline, and express sample counts relative to that baseline. 
+
+There are several approaches to chose of appropriate baseline.
+
+All the normalization methods considered here are global procedures, in the sense that only a single factor Cj is used to scale the counts for each sample j.
+The purpose of the size factors Cj is to render comparable the counts of different samples, even if these samples have been sequenced with different depths.
+
+We are considering three normalization methods that are considered to be the best ones :
+Upperquartile, RLE and TMM
+
+- **Upperquartile**
+
+In analogy with standard techniques for normalizing microarray data, the proposal is to match the
+between-sample distributions of gene counts in terms of parameters such as quantiles. For instance, one could simply scale counts within samples by their median. Due to the preponderance of zero and low-count genes, the median is uninformative for the different levels of sequencing effort. Instead, it is advised to use the per-sample upper-quartile (75-th percentile).
+
+```{r}
+
+# normalization factor calculation
+
+dge$samples$norm.factors
+
+dge_up_norm_factors = calcNormFactors(dge,method="upperquartile") 
+
+dge_up_norm_factors$samples$norm.factors
+
+```
+
+- **RLE**
+
+The ratios Kgj=Kgj0 of expected counts for the same gene g in different samples j and j0 should be
+equal to the size ratio Cj=Cj0 if gene g is not differentially expressed or samples j and j0 are replicates. The total number of reads, Dj , may seem to be a reasonable choice for Cj . However, a few highly and differentially expressed genes may have strong in uence on the total read counts, causing the ratio of total read counts not to be a good
+estimate for the ratio of expected counts.
+
+```{r}
+
+# normalization factor calculation
+
+dge$samples$norm.factors
+
+dge_RLE_edger_norm_factors = calcNormFactors(dge,method="RLE") 
+
+dge_RLE_edger_norm_factors$samples$norm.factors
+
+
+```
+
+
+** BE CAREFUL: The RLE normalization factors calculeted by edgeR function (calcNormFactors) and in the Deseq wrapper function are different ! **
+
+For more information :
+
+In Papyro Comparison of TMM (edgeR), RLE (DESeq2), and MRN Normalization Methods for a Simple Two-Conditions-Without-Replicates RNA-Seq Experimental Design
+Front Genet. 2016; 7: 164.
+Published online 2016 Sep 16. doi:  10.3389/fgene.2016.00164
+
+
+To have acces to Deseq RLE normalization factors, we need to create a DeseqDataSet object 
+
+```{r}
+
+head(design)
+
+experimentalDesign=formula(~cell+dex)
+
+dds=DESeqDataSetFromMatrix(dge_filtered$counts, design, experimentalDesign)
+
+dds=estimateSizeFactors(dds)
+
+dds$sizeFactor
+
+```
+
+- **TMM**
+
+Total read count is strongly dependent on a few highly expressed transcripts.
+The majority of genes are not differentially expressed..
+A trimmed mean is the average after removing the upper and lower x% of the data. The TMM procedure
+is doubly trimmed, by log-fold-changes Mg(j; r) (sample j relative to sample r for gene g)
+
+```{r}
+
+# normalization factor calculation
+
+dge$samples$norm.factors
+
+dge_TMM_norm_factors = calcNormFactors(dge,method="TMM") 
+
+dge_TMM_norm_factors$samples$norm.factors
+
+```
+
+The three normalization methods give higly similar results.
+Hoever we will choose TMM normalization for EdgeR and limma/voom statistical procedures because it is recommanded by user guides and RLE (from Deseq2) for Deseq2 as commanded by user guides.
+
+```{r}
+
+dge$samples$norm.factors
+
+dge = calcNormFactors(dge,method="RLE") 
+
+dge$samples$norm.factors
+
+```
+
+# Normalization quality control
+
+## TMM
+
+```{r}
+
+TMM_norm_counts=sweep(dge_filtered$counts ,2, dge$samples$norm.factors, FUN = '*')
+
+head(dge_filtered$counts)
+
+head(TMM_norm_counts)
+
+```
+
+### Density Plot
+
+To assess whether the normalization has worked, we plot the densities of counts for the different samples. Since most of the genes are affected by the experimental conditions, a successful normalization will lead to overlapping densities.
+
+
+```{r} 
+
+
+head(TMM_norm_counts)
+
+multidensity( dge_filtered$counts,
+              xlab="mean counts ", 
+              xlim=c(0, 5000),
+              main = " A- Non-normalized",
+              legend=NA)
+
+
+
+multidensity( TMM_norm_counts,
+              xlab="mean counts",
+              xlim=c(0, 5000),
+              main =" B- Normalized",
+              legend=NA)
+
+```
+
+### ECDF Plot
+
+Empirical Cummulative Distribution Functions (ECDFs) :  integrals of the densities and give the probability of observing a certain number of counts equal to x  or less given the data.
+
+In an ECDF plot, the estimated probability is plotted on the y-axis and the count values on the x-axis. I.e. one can read the median and other quantiles from this plot.
+
+If the normalization has worked, the ECDFs of the different samples should be overlapping.
+
+```{r}
+
+multiecdf( dge_filtered$counts,
+           xlab="mean counts", xlim=c(0, 2000),main = " A- Non-normalized",legend=NA)
+
+multiecdf( TMM_norm_counts,
+           xlab="mean counts", xlim=c(0, 2000), main =" B- Normalized",legend=NA)
+
+```
+
+### MA-Plots between samples
+
+An MA-plot is a plot of log-fold change (M-values, i.e. the log of the ratio of level counts for each gene between
+two samples) against the log-average (A-values, i.e. the average level counts for each gene across the two samples).
+The MA-plot is a useful to visualize reproducibility between samples of an experiment. From a MA-plot one can see
+if normalization is needed.
+In MA plot, genes with similar expression levels in two samples will appear around the horizontal line y = 0. A lowess fit (in red) is plotted underlying a possible trend in the bias related to the mean expression.
+
+#### Before TMM normalization
+
+```{r}
+
+lcpm_no_norm=cpm(dge$counts,log=T,prior.count = 0.5)
+
+for(i in 1:(ncol(dge$counts)-1)){
+  
+  x = lcpm_no_norm[, i]
+  y = lcpm_no_norm[, (i+1)]
+  
+  ## M-values
+  M = x - y
+  
+  ## A-values
+  A = (x + y)/2
+  
+  df = data.frame(A, M)
+  
+  print(
+    ggplot(df, aes(x = A, y = M))+
+    geom_point(size = 1.5, alpha = 1/5)+
+    geom_hline(yintercept=0.0, color="blue3")+
+    stat_smooth(se = FALSE, method = "loess", color = "red3")+
+    ggtitle((paste(colnames(raw_lcpm)[i], "vs", colnames(raw_lcpm)[(i+1)])))+
+    theme(plot.title = element_text(hjust = 0.5))
+  )
+  
+}
+
+```
+
+#### After TMM normalization
+
+```{r}
+
+lcpm_TMM_norm=cpm(TMM_norm_counts,log=T,prior.count = 0.5)
+
+for(i in 1:(ncol(dge$counts)-1)){
+  
+  x = lcpm_TMM_norm[, i]
+  y = lcpm_TMM_norm[, (i+1)]
+  
+  ## M-values
+  M = x - y
+  
+  ## A-values
+  A = (x + y)/2
+  
+  df = data.frame(A, M)
+  
+  print(
+    ggplot(df, aes(x = A, y = M))+
+    geom_point(size = 1.5, alpha = 1/5)+
+    geom_hline(yintercept=0.0, color="blue3")+
+    stat_smooth(se = FALSE, method = "loess", color = "red3")+
+    ggtitle((paste(colnames(raw_lcpm)[i], "vs", colnames(raw_lcpm)[(i+1)])))+
+    theme(plot.title = element_text(hjust = 0.5))
+  )
+  
+}
+
+```
+
+### Mean-Difference Plot (MA plot variation)
+
+This visualizes the library sizelog-fold change between two libraries (then difference) against the average log-expression across those libraries (the mean). 
+
+The following MD plot is generated by comparing sample 1 against an artificial library constructed from the average of all other samples.
+
+Ideally, the bulk of genes should be centred at a log-fold change of zero. 
+The diagonal lines in the lower left of the plot correspond to genes with counts of 0, 1, 2 and so on in the first sample.
+
+#### Before TMM normalization
+
+```{r}
+
+for (i in 1:(ncol(dge$counts)-1)){
+  plotMD(lcpm_no_norm, column=i)  
+  abline(h=0, col="red", lty=2, lwd=2)
+}
+
+```
+
+
+#### After TMM normalization
+
+```{r}
+
+for (i in 1:(ncol(dge$counts)-1)){
+  plotMD(lcpm_TMM_norm, column=i)  
+  abline(h=0, col="red", lty=2, lwd=2)
+}
+
+```
+
+## RLE (Deseq2)
+
+```{r}
+
+head(dge_filtered$counts)
+
+head(counts(dds, normalized = T))
+
+```
+
+### Density Plot
+
+
+```{r} 
+
+multidensity( dge_filtered$counts,
+              xlab="mean counts ", 
+              xlim=c(0, 5000),
+              main = " A- Non-normalized",
+              legend=NA)
+
+multidensity( counts(dds, normalized = T),
+              xlab="mean counts",
+              xlim=c(0, 5000),
+              main =" B- Normalized",
+              legend=NA)
+
+```
+
+### ECDF Plot
+
+Empirical Cummulative Distribution Functions (ECDFs) :  integrals of the densities and give the probability of observing a certain number of counts equal to x  or less given the data.
+
+In an ECDF plot, the estimated probability is plotted on the y-axis and the count values on the x-axis. I.e. one can read the median and other quantiles from this plot.
+
+If the normalization has worked, the ECDFs of the different samples should be overlapping.
+
+```{r}
+
+multiecdf( dge_filtered$counts,
+           xlab="mean counts", xlim=c(0, 2000),main = " A- Non-normalized",legend=NA)
+
+multiecdf( counts(dds, normalized = T),
+           xlab="mean counts", xlim=c(0, 2000), main =" B- Normalized",legend=NA)
+
+```
+
+### MA-Plots between samples
+
+
+#### Before RLE normalization
+
+```{r}
+
+lcpm_no_norm=cpm(counts(dds, normalized = F),log=T,prior.count = 0.5)
+
+for(i in 1:(ncol(dge$counts)-1)){
+  
+  x = lcpm_no_norm[, i]
+  y = lcpm_no_norm[, (i+1)]
+  
+  ## M-values
+  M = x - y
+  
+  ## A-values
+  A = (x + y)/2
+  
+  df = data.frame(A, M)
+  
+  print(
+    ggplot(df, aes(x = A, y = M))+
+    geom_point(size = 1.5, alpha = 1/5)+
+    geom_hline(yintercept=0.0, color="blue3")+
+    stat_smooth(se = FALSE, method = "loess", color = "red3")+
+    ggtitle((paste(colnames(raw_lcpm)[i], "vs", colnames(raw_lcpm)[(i+1)])))+
+    theme(plot.title = element_text(hjust = 0.5))
+  )
+  
+}
+
+```
+
+
+### After RLE normalization
+
+```{r}
+
+lcpm_rle_norm=cpm(counts(dds, normalized = T),log=T,prior.count = 0.5)
+
+for(i in 1:(ncol(dge$counts)-1)){
+  
+  x = lcpm_rle_norm[, i]
+  y = lcpm_rle_norm[, (i+1)]
+  
+  ## M-values
+  M = x - y
+  
+  ## A-values
+  A = (x + y)/2
+  
+  df = data.frame(A, M)
+  
+  print(
+    ggplot(df, aes(x = A, y = M))+
+    geom_point(size = 1.5, alpha = 1/5)+
+    geom_hline(yintercept=0.0, color="blue3")+
+    stat_smooth(se = FALSE, method = "loess", color = "red3")+
+    ggtitle((paste(colnames(raw_lcpm)[i], "vs", colnames(raw_lcpm)[(i+1)])))+
+    theme(plot.title = element_text(hjust = 0.5))
+  )
+  
+}
+
+```
+
+
+## Mean-Difference Plot (MA plot variation)
+
+This visualizes the library sizelog-fold change between two libraries (then difference) against the average log-expression across those libraries (the mean). 
+
+The following MD plot is generated by comparing sample 1 against an artificial library constructed from the average of all other samples.
+
+Ideally, the bulk of genes should be centred at a log-fold change of zero. 
+The diagonal lines in the lower left of the plot correspond to genes with counts of 0, 1, 2 and so on in the first sample.
+
+# Before RLE normalization
+
+```{r}
+
+for (i in 1:(ncol(dge$counts)-1)){
+  plotMD(lcpm_no_norm, column=i)  
+  abline(h=0, col="red", lty=2, lwd=2)
+}
+
+```
+
+# After RLE normalization
+
+```{r}
+
+for (i in 1:(ncol(dge$counts)-1)){
+  plotMD(lcpm_rle_norm, column=i)  
+  abline(h=0, col="red", lty=2, lwd=2)
+}
+
+```
+
+RLE normalization give way better results than TMM normalization according to multidensity and ECTF plots.
+However none on the normalization methods seem to have an effect on MD or MA plots ( already centered around zero before normalization)
+
+# Between-samples similarities
+
+## PCA
+
+Principal component analysis (PCA) simplifies the complexity in high-dimensional data while retaining trends and patterns. It does this by transforming the data into fewer dimensions, which act as summaries of features. High-dimensional data are very common in biology and arise when multiple features, such as expression of many genes, are measured for each sample
+
+### Deseq2 PCA
+
+**Note: Do not forget to r-log transform the data before making PCA. **
+
+To avoid that the distance measure is dominated by a few highly variable genes, and have a roughly equal contribution from all genes, PCA plots should be made from **regularized log-transformed data**.
+
+The aim of the regularized log-transform is to stabilize the variance of the data and to make its distribution roughly symmetric since many common statistical methods for exploratory analysis of multidimensional data, especially methods for clustering and ordination (e.g., principal-component analysis and the like), work best for (at least approximately) homoskedastic data; this means that the variance of an observable quantity (i.e., here, the expression strength of a gene) does not depend on the mean.
+
+In RNA-Seq data, however, variance grows with the mean. 
+
+**For example, if one performs PCA directly on a matrix of normalized read counts, the result typically depends only on the few most strongly expressed genes because they show the largest absolute differences between samples.**
+
+DESeq2 offers the regularized-logarithm transformation :
+
+  - For genes with high counts, the rlog transformation differs not much from an ordinary log2 transformation.
+
+  - For genes with lower counts, however, the values are shrunken towards the genes'averages across all samples. Using an empirical Bayesian prior in the form of a ridge penalty, this is done such that the rlog-transformed data are approximately homoskedastic. 
+
+
+**NB :** 
+
+  - the rlogTransformation function is a little bit long to run (several minutes).
+  
+  - Note that the rlog transformation is provided for applications other than differential testing. 
+  
+  
+    **For differential testing it is always recommended to apply the DESeq function to raw counts.**
+    
+
+```{r}
+
+rld = rlogTransformation(dds, blind=T)
+
+plotPCA(rld, intgroup="cell")
+
+plotPCA(rld, intgroup="dex")
+
+
+```
+
+### Mixomics PCA
+
+```{r}
+
+tune.pca(t(dge$counts), center = TRUE, scale = TRUE)
+
+pca.result = pca(t(dge$counts), ncomp = 4, center = TRUE, scale = TRUE)
+pca.result
+
+plot(pca.result)
+
+# According to cell lines
+
+plotIndiv(pca.result, comp=c(1,2), group=design$cell,legend=T)
+plotIndiv(pca.result, comp=c(3,4), group=design$cell,legend=T)
+
+# According to dex treatment
+
+plotIndiv(pca.result, comp=c(1,2), group=design$dex,legend=T)
+plotIndiv(pca.result, comp=c(3,4), group=design$dex,legend=T)
+
+
+```
+
+Rlog transformation allow better separation between experimental conditions.
+
+## MDS
+
+The purpose of multidimensional scaling (MDS) is to provide a visual representation of the pattern of proximities (i.e., similarities or distances) among a set of objects. MDS takes a set of similarities and returns a set of points such that the distances between the points are approximately equal to the similarities.
+The similarities between each pair of samples (columns) is the root-mean-square deviation (Euclidean distance) for the top genes. Distances on the plot can be interpreted as leading log2-fold-change, meaning the typical (root-mean-square) log2-fold-change between the samples for the genes that distinguish those samples.
+
+```{r}
+
+
+# According to cell lines
+
+col = design$cell
+levels(col) = brewer.pal(nlevels(col), "Set1")
+col = as.character(col)
+
+## dimensions 1 and 2
+
+plotMDS(lcpm_TMM_norm, labels=design$patient, col=col)
+title(main="A. Cell Lines")
+
+## dimensions 3 and 4
+
+plotMDS(lcpm_TMM_norm, labels=design$patient, col=col, dim=c(3,4))
+title(main="A. Cell Lines")
+
+# According to Dex Treatment
+
+## dimensions 1 and 2
+
+plotMDS(lcpm_TMM_norm, labels=design$dex, col=c("salmon","turquoise"))
+title(main="A. Dex Treatment")
+
+## dimensions 3 and 4
+
+plotMDS(lcpm_TMM_norm, labels=design$dex, col=c("salmon","turquoise"), dim=c(3,4))
+title(main="A. Dex Treatment")
+
+```
+
+## Interactive MDS Plot
+
+The glimma package allows to produce interactive MDS plot (the output is an interactive html page (Java Script), one can find in the attached folder).
+
+```{r}
+
+glMDSPlot(lcpm_TMM_norm,
+          labels=design$Experiment,
+          groups=design,
+          launch=T,
+          folder="glimma_MDS_Plot",
+          html="MDS_plot") 
+
+```
+
+[link](./glimma_MDS_Plot/MDS_plot.html)
+
+## t-SNE
+
+t-SNE is a nonlinear dimensionality reduction technique well-suited for embedding high-dimensional data for visualization in a low-dimensional space of two or three dimensions. Specifically, it models each high-dimensional object by a two- or three-dimensional point in such a way that similar objects are modeled by nearby points and dissimilar objects are modeled by distant points with high probability.
+ 
+```{r}
+
+
+set.seed(42) # Set a seed if you want reproducible results
+
+tsne = Rtsne(t(lcpm_TMM_norm),
+             pca_center = TRUE,
+             pca_scale = TRUE,
+             dims = 2,
+             perplexity=2,
+             verbose=FALSE,
+             max_iter = 1000)
+
+
+tsne_plot = data.frame(x = tsne$Y[,1], y = tsne$Y[,2])
+
+## according to cell lines
+cell_line=design$cell
+ggplot(tsne_plot) + geom_point(aes(x=x, y=y,color=cell_line))
+
+
+## according to treatment
+dex_treatment=design$dex
+ggplot(tsne_plot) + geom_point(aes(x=x, y=y,color=dex_treatment))
+
+
+```
+
+These reduction techniques give similar results even if in this dataset MDS plot shows the best separation between treated and untreated cells.
+
+Samples are grouped according to dexamethasone treatment only.
+
+If one detects any batch effect due to an experimental condition then he can use the combat method or the sva method in order to remove the batch effect.
+
+## Heat-Map 
+
+### Hierarchical clustering
+
+
+```{r}
+
+
+cdslog =assay(rld)
+colnames(cdslog)=design$dex
+dist.cor = 1-cor(cdslog, method = "spearman")
+hc.cor = hclust(as.dist(dist.cor),method="ward.D2")
+
+dend = as.dendrogram(hc.cor)
+
+dend = color_labels(dend, k = 2)
+plot(dend, main = "Hierarchical clustering of samples ",sub="Correlation coefficient used : Spearman
+Clustering method : Ward")
+
+```
+
+**Note: Do not forget to r-log transform the data before making samples clusterisation **
+
+```{r}
+
+distsRL = dist(t(assay(rld)),method="euclidean")
+mat = as.matrix(distsRL)
+rownames(mat) = colData(dds)$dex
+colnames(mat) =  colData(dds)$dex
+
+hmcol = colorRampPalette(brewer.pal(9, "Blues"))(255)
+
+# using heatmap.2
+
+heatmap.2(mat, trace="none",Rowv=dend,Colv=dend, col = rev(hmcol), margin=c(9, 9))
+
+# using pheatmap
+
+# Colors to be used for row and column colorbars
+asamplevars=dplyr::select(design,c("cell","dex"))
+
+acolors = list(
+    cell = c(N61311="#66c2a5", N052611="#fc8d62",N080611="#000080",N061011="#e6194b"),
+    dex = c(untrt="#008080",`trt`="#e6beff") 
+   )
+
+library(pheatmap)
+
+mat = as.matrix(distsRL)
+
+pheatmap(mat=mat,
+         cluster_cols=T,
+         annotation_col=asamplevars,
+         annotation_colors = acolors,
+         show_colnames = T,
+         main="Heatmap")
+
+```
+
+# Saving current workspace
+
+```{r}
+
+save.image(file = ".RData")
+
+```
+
+# Sources & References
+
+Himes BE, Jiang X, Wagner P, Hu R et al. RNA-Seq transcriptome profiling identifies CRISPLD2 as a glucocorticoid responsive gene that modulates cytokine function in airway smooth muscle cells. PLoS One 2014;9(6):e99625. PMID: 24926665
+
+Love MI, Anders S, Kim V, Huber W. 2015. RNA-Seq workflow: gene-level exploratory analysis and differential expression. F1000Research [Internet] 4:1070. Available from: https://f1000research.com/articles/4-1070/v1
+
+Law CW, Alhamdoosh M, Su S, Smyth GK, Ritchie ME. 2016. RNA-seq analysis is easy as 1-2-3 with limma, Glimma and edgeR. F1000Research 5.
+
+
+Chen Y, Lun AT, Smyth GK. 2016. From reads to genes to pathways: differential expression analysis of RNA-Seq experiments using Rsubread and the edgeR quasi-likelihood pipeline. F1000Research 5.
+
+Loraine AE, Blakley IC, Jagadeesan S, Harper J, Miller G, Firon N. 2015. Analysis and Visualization of RNA-Seq Expression Data Using RStudio, Bioconductor, and Integrated Genome Browser. In: Alonso JM, Stepanova AN, editors. Plant Functional Genomics. Vol. 1284. New York, NY: Springer New York. p. 481-501. Available from: http://link.springer.com/10.1007/978-1-4939-2444-8_24
+
+Robinson MD, McCarthy DJ, Smyth GK. 2010. edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. Bioinformatics 26:139-140.
+
